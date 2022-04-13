@@ -26,8 +26,6 @@ pub mod staking_factory {
         units_per_token: u64,
         rewards_per_unit: u64,
     ) -> Result<()> {
-        return Ok(());
-
         let staking = &mut ctx.accounts.stacking;
         staking.add_factory_creator(*ctx.accounts.factory_creator);
         staking.authority = ctx.accounts.stacking_creator.key();
@@ -80,7 +78,7 @@ pub struct CreateStacking<'info> {
     payer = stacking_creator,
     space = 8 + Staking::space(),
     seeds= [
-    b"stacking",
+    b"staking",
     stacking_creator.key.as_ref(),
     stacking_mint.key().as_ref(),
     [reward_policy_type].as_ref()
