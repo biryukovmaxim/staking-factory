@@ -9,7 +9,6 @@ import {
     mintTo,
     TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import * as console from "console";
 let factoryCreator: web3.Keypair;
 let factoryCreatorPda: web3.PublicKey;
 describe("staking-factory", () => {
@@ -52,47 +51,60 @@ describe("staking-factory", () => {
       );
 
       const [stakePoolPda,] = await anchor.web3.PublicKey.findProgramAddress(
-          // @ts-ignore
-          [['staking'], [stakePoolCreator.publicKey], [stakeMint], [policy]],
+          [anchor.utils.bytes.utf8.encode('staking'),
+              stakePoolCreator.publicKey.toBytes(),
+              stakeMint.toBytes(),
+              Uint8Array.from([policy])
+          ],
           program.programId
       );
 
-      const stakeKey = await createMultisig(
-          provider.connection,
-          stakePoolCreator,
-          [
-              stakePoolCreator.publicKey,
-              factoryCreator.publicKey,
-              program.programId,
+      const [stakedTokens,] = await anchor.web3.PublicKey.findProgramAddress(
+          [anchor.utils.bytes.utf8.encode('staked_tokens'),
+              stakePoolCreator.publicKey.toBytes(),
+              stakeMint.toBytes(),
+              Uint8Array.from([policy])
           ],
-          1
+          program.programId
       );
-      const rewardKey = await createMultisig(
-          provider.connection,
-          stakePoolCreator,
-          [
-              program.programId,
-              factoryCreator.publicKey,
+      const [freeTokens,] = await anchor.web3.PublicKey.findProgramAddress(
+          [anchor.utils.bytes.utf8.encode('free_tokens'),
+              stakePoolCreator.publicKey.toBytes(),
+              stakeMint.toBytes(),
+              Uint8Array.from([policy])
           ],
-          1
+          program.programId
       );
-      const stakeAcc = await getOrCreateAssociatedTokenAccount(provider.connection, stakePoolCreator, stakeMint, stakeKey, true)
-      const rewardAcc =   await getOrCreateAssociatedTokenAccount(provider.connection, stakePoolCreator, stakeMint, rewardKey, true)
+      const [rewardTokens,] = await anchor.web3.PublicKey.findProgramAddress(
+          [anchor.utils.bytes.utf8.encode('reward_tokens'),
+              stakePoolCreator.publicKey.toBytes(),
+              stakeMint.toBytes(),
+              Uint8Array.from([policy])
+          ],
+          program.programId
+      );
+      const stakeAcc = await getAssociatedTokenAddress(stakeMint, stakedTokens, true)
+      const rewardAcc =   await getAssociatedTokenAddress(stakeMint, rewardTokens, true)
+      const freeAcc = await getAssociatedTokenAddress(stakeMint, freeTokens, true)
         await program.methods.createStaking(
-            policy,new BN(60),new BN(1),new BN(1)
+            policy,new BN(60),new BN(1),new BN()
         )
             .accounts({
                 stacking: stakePoolPda,
                 stackingCreator: stakePoolCreator.publicKey,
                 factoryCreator: factoryCreatorPda,
                 stackingMint: stakeMint,
-                generalStakePool:stakeAcc.address,
+                generalStakePool:stakeAcc,
                 rewardMint: stakeMint,
-                generalRewardPool: rewardAcc.address,
+                generalRewardPool: rewardAcc,
                 tokenProgram: TOKEN_PROGRAM_ID,
                 associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
                 systemProgram: web3.SystemProgram.programId,
                 rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+                freeTokens: freeTokens,
+                stakedTokens: stakedTokens,
+                rewardTokens: rewardTokens,
+                generalFreePool: freeAcc,
             })
             .signers([stakePoolCreator])
             .rpc();

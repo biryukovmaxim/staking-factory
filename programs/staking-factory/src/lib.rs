@@ -26,8 +26,6 @@ pub mod staking_factory {
         units_per_token: u64,
         rewards_per_unit: u64,
     ) -> Result<()> {
-        return Ok(());
-
         let staking = &mut ctx.accounts.stacking;
         staking.add_factory_creator(*ctx.accounts.factory_creator);
         staking.authority = ctx.accounts.stacking_creator.key();
@@ -40,8 +38,8 @@ pub mod staking_factory {
             rewards_per_unit,
         };
         staking.reward_token_account = ctx.accounts.general_reward_pool.key();
-        msg!("{:?}", ctx.accounts.general_reward_pool.owner);
         staking.staked_token_account = ctx.accounts.general_stake_pool.key();
+        staking.free_token_account = ctx.accounts.general_free_pool.key();
         Ok(())
     }
 
@@ -80,21 +78,72 @@ pub struct CreateStacking<'info> {
     payer = stacking_creator,
     space = 8 + Staking::space(),
     seeds= [
-    b"stacking",
+    b"staking",
     stacking_creator.key.as_ref(),
     stacking_mint.key().as_ref(),
     [reward_policy_type].as_ref()
     ], bump
     )]
     stacking: Account<'info, Staking>,
+    #[account(init,
+    payer = stacking_creator,
+    space = 8 ,
+    seeds= [
+    b"free_tokens",
+    stacking_creator.key.as_ref(),
+    stacking_mint.key().as_ref(),
+    [reward_policy_type].as_ref()
+    ], bump
+    )]
+    free_tokens: Account<'info, Empty>,
+    #[account(init,
+    payer = stacking_creator,
+    space = 8 ,
+    seeds= [
+    b"staked_tokens",
+    stacking_creator.key.as_ref(),
+    stacking_mint.key().as_ref(),
+    [reward_policy_type].as_ref()
+    ], bump
+    )]
+    staked_tokens: Account<'info, Empty>,
+    #[account(init,
+    payer = stacking_creator,
+    space = 8,
+    seeds= [
+    b"reward_tokens",
+    stacking_creator.key.as_ref(),
+    stacking_mint.key().as_ref(),
+    [reward_policy_type].as_ref()
+    ], bump
+    )]
+    reward_tokens: Account<'info, Empty>,
+
     #[account(mut)]
     stacking_creator: Signer<'info>,
     factory_creator: Account<'info, FactoryCreator>,
     stacking_mint: Box<Account<'info, Mint>>,
-    #[account()]
+    #[account(
+    init,
+    payer = stacking_creator,
+    associated_token::mint = stacking_mint,
+    associated_token::authority = staked_tokens,
+    )]
     general_stake_pool: Box<Account<'info, TokenAccount>>,
+    #[account(
+    init,
+    payer = stacking_creator,
+    associated_token::mint = stacking_mint,
+    associated_token::authority = free_tokens,
+    )]
+    general_free_pool: Box<Account<'info, TokenAccount>>,
     reward_mint: Box<Account<'info, Mint>>,
-    #[account()]
+    #[account(
+    init,
+    payer = stacking_creator,
+    associated_token::mint = reward_mint,
+    associated_token::authority = reward_tokens,
+    )]
     general_reward_pool: Box<Account<'info, TokenAccount>>,
     token_program: Program<'info, Token>,
     associated_token_program: Program<'info, AssociatedToken>,
@@ -147,3 +196,6 @@ impl Staking {
 pub enum MyError {
     MyError,
 }
+
+#[account]
+pub struct Empty {}
