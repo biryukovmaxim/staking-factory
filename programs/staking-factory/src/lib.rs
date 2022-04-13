@@ -1,5 +1,4 @@
 use crate::reward::{Params, RewardPolicy};
-use crate::staking_factory::StackingFactory;
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{Mint, Token, TokenAccount};
@@ -12,6 +11,8 @@ declare_id!("DBa1q9iY3ZrvXBgEpVq453adWqZUrVDmRQztiW6FRJek");
 #[program]
 pub mod staking_factory {
     use super::*;
+    use anchor_spl::token;
+    use anchor_spl::token::Transfer;
 
     pub fn initialize(ctx: Context<Initialize>, fee_percent: u8) -> Result<()> {
         ctx.accounts.creator_pda.fee_percent = fee_percent;
@@ -40,6 +41,26 @@ pub mod staking_factory {
         staking.reward_token_account = ctx.accounts.general_reward_pool.key();
         staking.staked_token_account = ctx.accounts.general_stake_pool.key();
         staking.free_token_account = ctx.accounts.general_free_pool.key();
+        Ok(())
+    }
+
+    pub fn create_user_account(ctx: Context<CreateUserAccount>) -> Result<()> {
+        let user_acc = &mut ctx.accounts.account;
+        user_acc.authority = ctx.accounts.user.key();
+        Ok(())
+    }
+
+    pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
+        let cpi_ctx = CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.source.to_account_info(),
+                to: ctx.accounts.destination.to_account_info(),
+                authority: ctx.accounts.user.to_account_info(),
+            },
+        );
+        token::transfer(cpi_ctx, amount)?;
+        ctx.accounts.account.free = amount;
         Ok(())
     }
 
@@ -151,6 +172,60 @@ pub struct CreateStacking<'info> {
     rent: Sysvar<'info, Rent>,
 }
 
+#[derive(Accounts)]
+pub struct CreateUserAccount<'info> {
+    #[account(init,
+    payer = user,
+    space = 8 + UserAccount::space(),
+    seeds= [
+    b"user",
+    user.key.as_ref(),
+    stacking.to_account_info().key().as_ref()
+    ], bump
+    )]
+    account: Account<'info, UserAccount>,
+    #[account(mut)]
+    user: Signer<'info>,
+    stacking: Account<'info, Staking>,
+    system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(amount: u64)]
+pub struct Deposit<'info> {
+    #[account(mut)]
+    account: Box<Account<'info, UserAccount>>,
+    #[account(mut, address = account.authority)]
+    user: Signer<'info>,
+    staking: Box<Account<'info, Staking>>,
+
+    #[account(mut,
+    associated_token::mint = mint,
+    associated_token::authority = user,
+    )]
+    pub source: Box<Account<'info, TokenAccount>>,
+    #[account(address = staking.mint)]
+    pub mint: Box<Account<'info, Mint>>,
+    #[account(
+    seeds= [
+    b"free_tokens",
+    staking.authority.key().as_ref(),
+    staking.mint.key().as_ref(),
+    [staking.policy_type as u8].as_ref()
+    ], bump
+    )]
+    free_tokens: Account<'info, Empty>,
+    #[account(
+    associated_token::mint = mint,
+    associated_token::authority = free_tokens,
+    )]
+    pub destination: Box<Account<'info, TokenAccount>>,
+
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    system_program: Program<'info, System>,
+}
+
 #[account]
 #[derive(Copy, Default, Debug)]
 pub struct FactoryCreator {
@@ -189,6 +264,25 @@ impl Staking {
     pub fn add_factory_creator(&mut self, fc: FactoryCreator) {
         self.factory_creator = fc.authority;
         self.factory_creator_fee_percent = fc.fee_percent;
+    }
+}
+
+#[account]
+pub struct UserAccount {
+    pub authority: Pubkey,
+    pub staked: u64,
+    pub free: u64,
+    pub start_at: Option<i64>,
+    pub end_at: Option<i64>,
+}
+
+impl UserAccount {
+    pub fn space() -> usize {
+        32 + //     pub authority: Pubkey,
+            8 + // pub staked: u64,
+            8 + // pub free: u64,
+            9 + // pub start_at: COption<i64>,
+            9 //  end_at: COption<i64>,
     }
 }
 

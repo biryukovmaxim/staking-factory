@@ -9,8 +9,19 @@ import {
     mintTo,
     TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
+import * as console from "console";
+
 let factoryCreator: web3.Keypair;
 let factoryCreatorPda: web3.PublicKey;
+let stakePoolPda: web3.PublicKey;
+let stakePoolCreator: web3.Keypair;
+const systemProgram = web3.SystemProgram.programId;
+let user: web3.Keypair;
+let stakeMint: web3.PublicKey;
+let userAccountPda: web3.PublicKey;
+let generalFreeTokensAcc: web3.PublicKey;
+let freeTokens: web3.PublicKey;
+
 describe("staking-factory", () => {
   const provider = anchor.Provider.env();
   // Configure the client to use the local cluster.
@@ -28,7 +39,7 @@ describe("staking-factory", () => {
         program.programId
     );
 
-    const initTx = await program.methods.initialize(3)
+    await program.methods.initialize(3)
         .accounts({
           creatorPda: factoryCreatorPda,
           factoryCreator: factoryCreator.publicKey,
@@ -39,10 +50,10 @@ describe("staking-factory", () => {
   });
   it("Create stake pool with direct same token policy", async () => {
       const policy = 0;
-      const stakePoolCreator = web3.Keypair.generate();
+      stakePoolCreator = web3.Keypair.generate();
       const tx = await provider.connection.requestAirdrop(stakePoolCreator.publicKey,  anchor.web3.LAMPORTS_PER_SOL);
       await provider.connection.confirmTransaction(tx);
-      const stakeMint = await createMint(
+      stakeMint = await createMint(
           provider.connection,
           stakePoolCreator,
           stakePoolCreator.publicKey,
@@ -50,7 +61,7 @@ describe("staking-factory", () => {
           2,
       );
 
-      const [stakePoolPda,] = await anchor.web3.PublicKey.findProgramAddress(
+      [stakePoolPda,] = await anchor.web3.PublicKey.findProgramAddress(
           [anchor.utils.bytes.utf8.encode('staking'),
               stakePoolCreator.publicKey.toBytes(),
               stakeMint.toBytes(),
@@ -67,7 +78,7 @@ describe("staking-factory", () => {
           ],
           program.programId
       );
-      const [freeTokens,] = await anchor.web3.PublicKey.findProgramAddress(
+      [freeTokens,] = await anchor.web3.PublicKey.findProgramAddress(
           [anchor.utils.bytes.utf8.encode('free_tokens'),
               stakePoolCreator.publicKey.toBytes(),
               stakeMint.toBytes(),
@@ -85,7 +96,7 @@ describe("staking-factory", () => {
       );
       const stakeAcc = await getAssociatedTokenAddress(stakeMint, stakedTokens, true)
       const rewardAcc =   await getAssociatedTokenAddress(stakeMint, rewardTokens, true)
-      const freeAcc = await getAssociatedTokenAddress(stakeMint, freeTokens, true)
+      generalFreeTokensAcc = await getAssociatedTokenAddress(stakeMint, freeTokens, true)
         await program.methods.createStaking(
             policy,new BN(60),new BN(1),new BN()
         )
@@ -104,9 +115,54 @@ describe("staking-factory", () => {
                 freeTokens: freeTokens,
                 stakedTokens: stakedTokens,
                 rewardTokens: rewardTokens,
-                generalFreePool: freeAcc,
+                generalFreePool: generalFreeTokensAcc,
             })
             .signers([stakePoolCreator])
             .rpc();
+
+      await mintTo(provider.connection, stakePoolCreator, stakeMint, rewardAcc, stakePoolCreator, 100000000)
+
   });
+  it("Initialize user account!", async () => {
+      user = web3.Keypair.generate();
+      const tx = await provider.connection.requestAirdrop(user.publicKey,  anchor.web3.LAMPORTS_PER_SOL);
+      await provider.connection.confirmTransaction(tx);
+
+      [userAccountPda,] = await anchor.web3.PublicKey.findProgramAddress(
+          [anchor.utils.bytes.utf8.encode('user'),
+              user.publicKey.toBytes(),
+              stakePoolPda.toBytes(),
+          ],
+          program.programId
+      );
+      await program.methods.createUserAccount().accounts
+      ({
+              account: userAccountPda,
+          user: user.publicKey,
+          stacking: stakePoolPda,
+          systemProgram,
+          })
+          .signers([user])
+          .rpc()
+  })
+    it("deposit user account!", async () => {
+        const userTokens = await getOrCreateAssociatedTokenAccount(provider.connection, user, stakeMint, user.publicKey)
+        await mintTo(provider.connection, user, stakeMint, userTokens.address, stakePoolCreator,1000)
+        await program.methods.deposit(100).accounts({
+            account: userAccountPda,
+            user: user.publicKey,
+            staking: stakePoolPda,
+            source: userTokens.address,
+            mint: stakeMint,
+            freeTokens: freeTokens,
+            destination: generalFreeTokensAcc,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: web3.SystemProgram.programId,
+        })
+            .signers([user])
+            .rpc()
+        // todo check balance
+
+    })
 });
