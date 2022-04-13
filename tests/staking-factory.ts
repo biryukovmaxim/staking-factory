@@ -148,7 +148,7 @@ describe("staking-factory", () => {
     it("deposit user account!", async () => {
         const userTokens = await getOrCreateAssociatedTokenAccount(provider.connection, user, stakeMint, user.publicKey)
         await mintTo(provider.connection, user, stakeMint, userTokens.address, stakePoolCreator,1000)
-        await program.methods.deposit(100).accounts({
+        await program.methods.deposit(new BN(100)).accounts({
             account: userAccountPda,
             user: user.publicKey,
             staking: stakePoolPda,
